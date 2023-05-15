@@ -40,6 +40,7 @@ struct Sym{
 struct Field{
 	char *name;
 	int len;
+	int count;
 	Sym sym;
 };
 
@@ -81,13 +82,10 @@ size2type(int x)
 }
 
 static int
-aligned(int x)
+aligned(Sym *s)
 {
-	switch(x){
-	case 1:
-	case 2:
-	case 4:
-	case 8:
+	switch(s->type){
+	case TU16: case TU32: case TU64:
 		return 1;
 	default:
 		return 0;
@@ -145,7 +143,7 @@ byteprint(void)
 static void
 cprint(char *name)
 {
-	int i;
+	int i, j;
 	char buf[128];
 
 /*
@@ -172,7 +170,10 @@ cprint(char *name)
 		switch(tobe[i].sym.type){
 		case TCmplx:
 			mklower(buf, buf + sizeof buf - 1, tobe[i].sym.name);
-			print("\tn += get%s(&ret->%s, data+n);\n", buf, tobe[i].name);
+			if(tobe[i].count == 1)
+				print("\tn += get%s(&ret->%s, data+n);\n", buf, tobe[i].name);
+			else for(j = 0; j < tobe[i].count; j++)
+				print("\tn += get%s(&ret->%s[%d], data+n);\n", buf, tobe[i].name, j);
 			continue;
 		case TVLA:
 			print("\tret->%s = data+n;\n", tobe[i].name);
@@ -181,7 +182,7 @@ cprint(char *name)
 		}
 		if(tobe[i].len == 1)
 			print("\tret->%s = data[n];\n", tobe[i].name);
-		else if(aligned(tobe[i].len))
+		else if(aligned(&tobe[i].sym))
 			print("\tret->%s = GET%d(data+n);\n", tobe[i].name, tobe[i].len);
 		else
 			print("\tmemcpy(ret->%s, data+n, %d);\n", tobe[i].name, tobe[i].len);
@@ -195,7 +196,10 @@ cprint(char *name)
 		switch(tobe[i].sym.type){
 		case TCmplx:
 			mklower(buf, buf + sizeof buf - 1, tobe[i].sym.name);
-			print("\tn += put%s(dst+n, &src->%s);\n", buf, tobe[i].name);
+			if(tobe[i].count == 1)
+				print("\tn += put%s(dst+n, &src->%s);\n", buf, tobe[i].name);
+			else for(j = 0; j < tobe[i].count; j++)
+				print("\tn += put%s(dst+n, &src->%s[%d]);\n", buf, tobe[i].name, j);
 			continue;
 		case TVLA:
 			print("\tmemmove(dst+n, src->%s, src->%s);\n", tobe[i].name, tobe[i].sym.from);
@@ -204,7 +208,7 @@ cprint(char *name)
 		}
 		if(tobe[i].len == 1)
 			print("\tdst[n] = src->%s;\n", tobe[i].name);
-		else if(aligned(tobe[i].len))
+		else if(aligned(&tobe[i].sym))
 			print("\tPUT%d(dst+n, src->%s);\n", tobe[i].len, tobe[i].name);
 		else
 			print("\tmemcpy(dst+n, src->%s, %d);\n", tobe[i].name, tobe[i].len);
@@ -313,6 +317,7 @@ member:
 	{
 		tobe[ntobe].name = $2;
 		tobe[ntobe].len = $1.val;
+		tobe[ntobe].count = 1;
 		tobe[ntobe].sym = $1;
 		ntobe++;
 	}
@@ -320,6 +325,7 @@ member:
 	{
 		tobe[ntobe].name = $2;
 		tobe[ntobe].len = $4;
+		tobe[ntobe].count = $4;
 		tobe[ntobe].sym = $1;
 		ntobe++;
 	}
