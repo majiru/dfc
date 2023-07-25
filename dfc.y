@@ -16,15 +16,16 @@ enum{
 };
 
 int ordermode = Big;
+int donebyteprint = 0;
+int nextenumval = 0;
 
 enum{
 	TCmplx,
-	TNum,
 	TUchar,
 	TU16,
 	TU32,
 	TU64,
-	TVLA,
+	TEnum,
 };
 
 typedef struct Field Field;
@@ -34,13 +35,11 @@ struct Sym{
 	char *name;
 	int type;
 	int val;
-	char *from;
 };
 
 struct Field{
 	char *name;
 	int len;
-	int count;
 	Sym sym;
 };
 
@@ -82,6 +81,21 @@ size2type(int x)
 }
 
 static int
+aligned2size(Sym *s)
+{
+	switch(s->type){
+	case TU16:
+		return 2;
+	case TU32:
+		return 4;
+	case TU64:
+		return 8;
+	default:
+		return 0;
+	}
+}
+
+static int
 aligned(Sym *s)
 {
 	switch(s->type){
@@ -97,6 +111,10 @@ byteprint(void)
 {
 	int x, y;
 	int shift;
+
+	if(donebyteprint)
+	for(x = 2; x <= 8; x++)
+		print("#undef GET%d\n#undef PUT%d\n", x, x);
 
 	if(ordermode == Big)
 	for(x = 2; x <= 8; x++){
@@ -138,6 +156,7 @@ byteprint(void)
 		print("\n");
 	}
 	print("\n");
+	donebyteprint = 1;
 }
 
 static void
@@ -146,44 +165,29 @@ cprint(char *name)
 	int i, j;
 	char buf[128];
 
-/*
-	print("typedef struct %s %s;\n", name, name);
-	print("struct %s{\n", name);
-	for(i = 0; i < ntobe; i++){
-		if(tobe[i].sym.type == TCmplx){
-			print("\t%s %s;\n", tobe[i].sym.name, tobe[i].name);
-			continue;
-		}
-		if(tobe[i].len == 0)
-			print("\tuchar *%s;\n", tobe[i].name);
-		else if(aligned(tobe[i].len))
-			print("\t%s %s;\n", size2type(tobe[i].len), tobe[i].name);
-		else
-			print("\tuchar %s[%d];\n", tobe[i].name, tobe[i].len);
-	}
-	print("};\n\n");
-*/
-
 	mklower(buf, buf + sizeof buf - 1, name);
 	print("long\nget%s(%s *ret, uchar *data)\n{\n\tlong n;\n\n\tn = 0;\n", buf, name);
 	for(i = 0; i < ntobe; i++){
-		switch(tobe[i].sym.type){
-		case TCmplx:
+		if(tobe[i].sym.type == TCmplx){
 			mklower(buf, buf + sizeof buf - 1, tobe[i].sym.name);
-			if(tobe[i].count == 1)
+			if(tobe[i].len == 1)
 				print("\tn += get%s(&ret->%s, data+n);\n", buf, tobe[i].name);
-			else for(j = 0; j < tobe[i].count; j++)
+			else for(j = 0; j < tobe[i].len; j++)
 				print("\tn += get%s(&ret->%s[%d], data+n);\n", buf, tobe[i].name, j);
 			continue;
-		case TVLA:
-			print("\tret->%s = data+n;\n", tobe[i].name);
-			print("\tn += ret->%s;\n", tobe[i].sym.from);
+		}
+		if(aligned(&tobe[i].sym)){
+			if(tobe[i].len == 1){
+				print("\tret->%s = GET%d(data+n);\n", tobe[i].name, aligned2size(&tobe[i].sym));
+				print("\tn += %d;\n", aligned2size(&tobe[i].sym));
+			} else for(j = 0; j < tobe[i].len; j++){
+				print("\tret->%s[%d] = GET%d(data+n);\n", tobe[i].name, j, aligned2size(&tobe[i].sym));
+				print("\tn += %d;\n", aligned2size(&tobe[i].sym));
+			}
 			continue;
 		}
 		if(tobe[i].len == 1)
 			print("\tret->%s = data[n];\n", tobe[i].name);
-		else if(aligned(&tobe[i].sym))
-			print("\tret->%s = GET%d(data+n);\n", tobe[i].name, tobe[i].len);
 		else
 			print("\tmemcpy(ret->%s, data+n, %d);\n", tobe[i].name, tobe[i].len);
 		print("\tn += %d;\n", tobe[i].len);
@@ -193,23 +197,26 @@ cprint(char *name)
 	mklower(buf, buf + sizeof buf - 1, name);
 	print("long\nput%s(uchar *dst, %s *src)\n{\n\tlong n;\n\n\tn = 0;\n", buf, name);
 	for(i = 0; i < ntobe; i++){
-		switch(tobe[i].sym.type){
-		case TCmplx:
+		if(tobe[i].sym.type == TCmplx){
 			mklower(buf, buf + sizeof buf - 1, tobe[i].sym.name);
-			if(tobe[i].count == 1)
+			if(tobe[i].len == 1)
 				print("\tn += put%s(dst+n, &src->%s);\n", buf, tobe[i].name);
-			else for(j = 0; j < tobe[i].count; j++)
+			else for(j = 0; j < tobe[i].len; j++)
 				print("\tn += put%s(dst+n, &src->%s[%d]);\n", buf, tobe[i].name, j);
 			continue;
-		case TVLA:
-			print("\tmemmove(dst+n, src->%s, src->%s);\n", tobe[i].name, tobe[i].sym.from);
-			print("\tn += src->%s;\n", tobe[i].sym.from);
+		}
+		if(aligned(&tobe[i].sym)){
+			if(tobe[i].len == 1){
+				print("\tPUT%d(dst+n, src->%s);\n", aligned2size(&tobe[i].sym), tobe[i].name);
+				print("\tn += %d;\n", aligned2size(&tobe[i].sym));
+			} else for(j = 0; j < tobe[i].len; j++){
+				print("\tPUT%d(dst+n, src->%s[%d]);\n", aligned2size(&tobe[i].sym), tobe[i].name, j);
+				print("\tn += %d;\n", aligned2size(&tobe[i].sym));
+			}
 			continue;
 		}
 		if(tobe[i].len == 1)
 			print("\tdst[n] = src->%s;\n", tobe[i].name);
-		else if(aligned(&tobe[i].sym))
-			print("\tPUT%d(dst+n, src->%s);\n", tobe[i].len, tobe[i].name);
 		else
 			print("\tmemcpy(dst+n, src->%s, %d);\n", tobe[i].name, tobe[i].len);
 		print("\tn += %d;\n", tobe[i].len);
@@ -232,9 +239,9 @@ cprint(char *name)
 
 %left '{' '}' '[' ']' ';' '=' '(' ')' '.'
 
-%token STRUCT TYPEDEF UCHAR U16 U32 U64
-%token <sval>	NAME NUM CHAR
-%token <ival>	VAR CMPLX
+%token STRUCT TYPEDEF ENUM UCHAR U16 U32 U64
+%token <sval>	NAME
+%token <ival>	NUM CMPLX
 
 %%
 
@@ -252,11 +259,7 @@ name:
 num:
 	NUM
 	{
-		$$ = atoi($1);
-	}
-|	VAR
-	{
-		$$ = defs[$1].val;
+		$$ = $1;
 	}
 
 type:
@@ -293,6 +296,8 @@ top:
 	TYPEDEF STRUCT name name sem
 |	STRUCT name '{' members '}' sem
 	{
+		if(!donebyteprint)
+			byteprint();
 		cprint($2);
 		defs[ndef].name = $2;
 		defs[ndef].type = TCmplx;
@@ -300,12 +305,9 @@ top:
 		ntobe = 0;
 		ndef++;
 	}
-|	name '=' num sem
+|	ENUM '{' emembers '}' sem
 	{
-		defs[ndef].name = $1;
-		defs[ndef].type = TNum;
-		defs[ndef].val = $3;
-		ndef++;
+		nextenumval = 0;
 	}
 
 members:
@@ -316,8 +318,7 @@ member:
 	type name sem
 	{
 		tobe[ntobe].name = $2;
-		tobe[ntobe].len = $1.val;
-		tobe[ntobe].count = 1;
+		tobe[ntobe].len = 1;
 		tobe[ntobe].sym = $1;
 		ntobe++;
 	}
@@ -325,19 +326,30 @@ member:
 	{
 		tobe[ntobe].name = $2;
 		tobe[ntobe].len = $4;
-		tobe[ntobe].count = $4;
 		tobe[ntobe].sym = $1;
 		ntobe++;
 	}
-|	type name '[' '.' name ']' sem
-	{
 
-		tobe[ntobe].name = $2;
-		tobe[ntobe].len = 0;
-		$1.type = TVLA;
-		$1.from = $5;
-		tobe[ntobe].sym = $1;
-		ntobe++;
+emembers:
+	emembers emember
+|	emember
+
+emember:
+	name '=' num
+	{
+		defs[ndef].name = $1;
+		defs[ndef].type = TEnum;
+		defs[ndef].val = $3;
+		nextenumval = $3+1;
+		ndef++;
+	}
+|	name
+	{
+		defs[ndef].name = $1;
+		defs[ndef].type = TEnum;
+		defs[ndef].val = nextenumval;
+		nextenumval++;
+		ndef++;
 	}
 
 %%
@@ -372,11 +384,71 @@ yyerror(char *s)
 	exits(s);
 }
 
+void
+wordlex(char *dst, int n)
+{
+	int c;
+
+	while(--n > 0){
+		c = getch();
+		if((c >= Runeself)
+		|| (c == '_')
+		|| (c == ':')
+		|| isalnum(c)){
+			*dst++ = c;
+			continue;
+		}
+		ungetc();
+		break;
+	}
+	if(n <= 0)
+		yyerror("symbol buffer overrun");
+	*dst = '\0';
+}
+
+int
+praglex(void)
+{
+	char buf[200];
+	int i;
+	int newmode;
+	char *wordtab[] = {
+		"pragma",
+		"dfc",
+	};
+
+	for(i = 0; i < nelem(wordtab); i++){
+		wordlex(buf, sizeof buf - 1);
+		if(strcmp(buf, wordtab[i]) != 0)
+			return 0;
+		if(getch() != ' '){
+			ungetc();
+			return 0;
+		}
+	}
+
+	wordlex(buf, sizeof buf - 1);
+	if(strcmp(buf, "big") == 0)
+		newmode = Big;
+	else if(strcmp(buf, "little") == 0)
+		newmode = Little;
+	else if(strcmp(buf, "done") == 0){
+		goteof = 1;
+		return -1;
+	} else
+		return 0;
+
+	if(ordermode != newmode){
+		ordermode = newmode;
+		byteprint();
+	}
+	return 0;
+}
+
 int
 yylex(void)
 {
 	static char buf[200];
-	char *p;
 	int c;
 	int i;
 
@@ -388,6 +460,7 @@ Loop:
 	case ' ':
 	case '\t':
 	case '\n':
+	case ',':
 		goto Loop;
 	case '/':
 		if(getch() != '*'){
@@ -404,6 +477,8 @@ More:
 			goto Loop;
 		goto More;
 	case '#':
+		if(praglex() < 0)
+			return -1;
 		while((c = getch()) > 0)
 			if(c == '\n')
 				break;
@@ -415,27 +490,11 @@ More:
 	case '{': case '}':
 	case '[': case ']':
 	case '(': case ')':
-	case '.':
 		return c;
 	}
 
 	ungetc();
-	p = buf;
-	for(;;){
-		c = getch();
-		if((c >= Runeself)
-		|| (c == '_')
-		|| (c == ':')
-		|| (c >= 'a' && c <= 'z')
-		|| (c >= 'A' && c <= 'Z')
-		|| (c >= '0' && c <= '9')){
-			*p++ = c;
-			continue;
-		}
-		ungetc();
-		break;
-	}
-	*p = '\0';
+	wordlex(buf, sizeof buf);
 
 	if(strcmp(buf, "struct") == 0)
 		return STRUCT;
@@ -449,16 +508,27 @@ More:
 		return U32;
 	if(strcmp(buf, "u64int") == 0)
 		return U64;
+	if(strcmp(buf, "enum") == 0)
+		return ENUM;
 
 	for(i = 0; i < ndef; i++){
 		if(strcmp(buf, defs[i].name) != 0)
 			continue;
-		yylval.ival = i;
-		return defs[i].type == TNum ? VAR : CMPLX;
+		if(defs[i].type == TCmplx){
+			yylval.ival = i;
+			return CMPLX;
+		}
+		yylval.ival = defs[i].val;
+		return NUM;
+	}
+
+	if(isdigit(buf[0])){
+		yylval.ival = atoi(buf);
+		return NUM;
 	}
 
 	yylval.sval = strdup(buf);
-	return (buf[0] >= '0' && buf[0] <= '9') ? NUM : NAME;
+	return NAME;
 }
 
 void
@@ -487,7 +557,6 @@ main(int argc, char **argv)
 	bin = Bopen(argv[0], OREAD);
 	goteof = 0;
 	print("#include <u.h>\n#include <libc.h>\n#include \"%s\"\n\n", argv[0]);
-	byteprint();
 	while(!goteof)
 		yyparse();
 	Bterm(bin);
