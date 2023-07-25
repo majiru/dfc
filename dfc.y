@@ -502,6 +502,8 @@ More:
 		return TYPEDEF;
 	if(strcmp(buf, "uchar") == 0)
 		return UCHAR;
+	if(strcmp(buf, "u8int") == 0)
+		return UCHAR;
 	if(strcmp(buf, "u16int") == 0)
 		return U16;
 	if(strcmp(buf, "u32int") == 0)

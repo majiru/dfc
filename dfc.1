@@ -47,15 +47,28 @@ All other preprocessor directives are ignored. Likewise
 typedef's are parsed but do not have any impact; Any struct defined
 is expected to be typedef'd.
 .PP
-Struct member types must be one of 
+Struct member types must be one of
 .BR u64int ,
 .BR u32int ,
 .BR u16int ,
+.BR u8int ,
 .BR uchar ,
-or may refer to another struct defined previously.
+or a struct previously defined.
+.SH OUTPUT
+For each struct defined
+.I dfc
+outputs two functions. For a struct called
+.L Block
+the following functions are generated:
+.IP
+.EX
+long getblock(Block *dst, uchar *src);
+long putblock(uchar *dst, Block *src);
+.EE
+.PP
+The return value for each is the total number
+of bytes consumed or generated respectively.
 .SH SOURCE
 .B /sys/src/cmd/dfc.y
-.SH SEE ALSO
-.IR yacc (1)
 .SH BUGS
 Calling the input grammer a subset of C is generous.
