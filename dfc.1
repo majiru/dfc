@@ -1,0 +1,61 @@
+.TH DFC 1
+.SH NAME
+dfc \- data field compiler
+.SH SYNOPSIS
+.B dfc
+[
+.B -lb
+]
+.I dat.h
+.SH DESCRIPTION
+.I Dfc
+reads C structure definitions defined in
+.I dat.h
+and outputs machine portable C functions on stdout
+to convert those structures to and from byte arrays.
+The
+.B -b
+and
+.B -l
+flags change the byte order of the data to little and
+big endian respectively. If none are specified
+.I dfc
+defaults to big endian.
+.SH GRAMMER
+The grammer accepted is a subset of C, specifically
+enum and structure definitions are understood. Additionally
+.I dfc
+defines some pragmas for its own use, each in the form:
+.EX
+#pragma dfc <directive>
+.EE
+.TF little
+.TP
+little
+Change the byte order to little endian
+.TP
+big
+Change the byte order to big endian
+.TP
+done
+Instructs
+.I dfc
+to not parse anything after this line.
+.PD
+.PP
+All other preprocessor directives are ignored. Likewise
+typedef's are parsed but do not have any impact; Any struct defined
+is expected to be typedef'd.
+.PP
+Struct member types must be one of 
+.BR u64int ,
+.BR u32int ,
+.BR u16int ,
+.BR uchar ,
+or may refer to another struct defined previously.
+.SH SOURCE
+.B /sys/src/cmd/dfc.y
+.SH SEE ALSO
+.IR yacc (1)
+.SH BUGS
+Calling the input grammer a subset of C is generous.
